@@ -29,3 +29,10 @@ buildNumber.properties
 ## Visual Studio Code
 ##############################
 .vscode/
+
+##############################
+## Lexer
+##############################
+cgen
+parser
+semant
