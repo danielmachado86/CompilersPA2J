@@ -35,6 +35,8 @@ import java_cup.runtime.Symbol;
     }
     
     private int yy_lexical_state;
+    private boolean eof_in_string = false;
+    private boolean eof_in_comment = false;
 %}
 
 %init{
@@ -56,14 +58,25 @@ import java_cup.runtime.Symbol;
  *  work.  */
 
     switch(yy_lexical_state) {
-    case YYINITIAL:
-	/* nothing special to do in the initial state */
-	break;
-	/* If necessary, add code for other states here, e.g:
-	   case COMMENT:
-	   ...
-	   break;
-	*/
+        case YYINITIAL:
+            /* nothing special to do in the initial state */
+            break;
+        case EOF:
+            return new Symbol(TokenConstants.EOF);
+        case STRING:
+            yy_lexical_state = EOF;
+            return new Symbol(
+                    TokenConstants.ERROR, new StringSymbol(
+                        "EOF in string constant", 22, 0
+                    )
+                );
+        case MLCOMMENT:
+            yy_lexical_state = EOF;
+            return new Symbol(
+                    TokenConstants.ERROR, new StringSymbol(
+                        "EOF in comment", 14, 0
+                    )
+                );
     }
     return new Symbol(TokenConstants.EOF);
 %eofval}
@@ -77,6 +90,10 @@ import java_cup.runtime.Symbol;
 
 %state STRING
 %state MLCOMMENT
+%state CLASS
+%state INHERITS
+%state COLON
+%state EOF
 
 LineTerminator = \r|\n|\r\n
 InputCharacter = [^\r\n]
@@ -92,38 +109,49 @@ digit = ([0] | [0-9]+)
 
 %%
 
-<YYINITIAL>\"			            { string_buf.setLength(0); yybegin(STRING); }
+<YYINITIAL>\"			            { yy_lexical_state = STRING; string_buf.setLength(0); yybegin(STRING); }
 <STRING> {  
-    \"                              {   yybegin(YYINITIAL);
-                                    }
-    [^\n\r\"\\]+                    {
-                                        string_buf.append( yytext() );
-                                        if(yytext().length() > 512){
+    \"                              {   yy_lexical_state = YYINITIAL; yybegin(YYINITIAL);
+                                        if(string_buf.length() > 512){
                                             return new Symbol(
                                                 TokenConstants.ERROR, new StringSymbol(
                                                     "String constant too long", 24, 0
                                                 )
                                             );
-
                                         } else {
                                             return new Symbol(
                                                 TokenConstants.STR_CONST, new StringSymbol(
                                                     string_buf.toString(), string_buf.toString().length(), 0
                                                 )
                                             );
-                                        }
+                                        } 
+                                    }
+    [^\n\r\"\\]+                    {   
+                                        string_buf.append( yytext() );
                                     }
     \\t                             { string_buf.append('\t'); }
-    \\n                             { string_buf.append('\n'); }
-
+    \\\n                            { string_buf.append('\n'); }
+    \n                              {   yy_lexical_state = YYINITIAL; yybegin(YYINITIAL); 
+                                        return new Symbol(
+                                                TokenConstants.ERROR, new StringSymbol(
+                                                    "Unterminated string constant", 28, 0
+                                                )
+                                            );
+                                    }
     \\r                             { string_buf.append('\r'); }
     \\\"                            { string_buf.append('\"'); }
-    \\                              { string_buf.append('\\'); }
+    \\                              {  }
 }
 
-<YYINITIAL>"(*"			            {yybegin(MLCOMMENT); }
+<YYINITIAL>"*)"			            { return new Symbol(
+                                                TokenConstants.ERROR, new StringSymbol(
+                                                    "Unmatched *)", 12, 0
+                                                )
+                                            );
+                                    }
+<YYINITIAL>"(*"			            {yy_lexical_state = MLCOMMENT; yybegin(MLCOMMENT); }
 <MLCOMMENT> {  
-    "*)"	                        { yybegin(YYINITIAL); }
+    "*)"	                        { yy_lexical_state = YYINITIAL; yybegin(YYINITIAL); }
     .                               { }
     \n                              { }
 }
@@ -132,7 +160,6 @@ digit = ([0] | [0-9]+)
 <YYINITIAL>{WhiteSpace}		        { }
 <YYINITIAL>"{"			            { return new Symbol(TokenConstants.LBRACE); }
 <YYINITIAL>"*"                      { return new Symbol(TokenConstants.MULT); }
-<YYINITIAL>"INHERITS"               { return new Symbol(TokenConstants.INHERITS); }
 <YYINITIAL>"POOL"                   { return new Symbol(TokenConstants.POOL); }
 <YYINITIAL>"CASE"                   { return new Symbol(TokenConstants.CASE); }
 <YYINITIAL>"("                      { return new Symbol(TokenConstants.LPAREN); }
@@ -144,7 +171,21 @@ digit = ([0] | [0-9]+)
 <YYINITIAL>"<"                      { return new Symbol(TokenConstants.LT); }
 <YYINITIAL>"IN"                     { return new Symbol(TokenConstants.IN); }
 <YYINITIAL>","                      { return new Symbol(TokenConstants.COMMA); }
-<YYINITIAL>"CLASS"                  { return new Symbol(TokenConstants.CLASS); }
+<YYINITIAL>"CLASS"                  { yybegin(CLASS); 
+                                    return new Symbol(TokenConstants.CLASS); }
+<CLASS>{
+    {WhiteSpace}		            { }                            
+    {Identifier}                    {yybegin(YYINITIAL); 
+                                    return new Symbol(TokenConstants.TYPEID, new IdSymbol(yytext(), yytext().length(), 0)); }                              
+}
+<YYINITIAL>"INHERITS"                  { yybegin(INHERITS); 
+                                    return new Symbol(TokenConstants.INHERITS); }
+<INHERITS>{
+    {WhiteSpace}		            { }                            
+    {Identifier}                    {yybegin(YYINITIAL); 
+                                    return new Symbol(TokenConstants.TYPEID, new IdSymbol(yytext(), yytext().length(), 0)); }                              
+}
+
 <YYINITIAL>"FI"                     { return new Symbol(TokenConstants.FI); }
 <YYINITIAL>"/"                      { return new Symbol(TokenConstants.DIV); }
 <YYINITIAL>"LOOP"                   { return new Symbol(TokenConstants.LOOP); }
@@ -157,7 +198,13 @@ digit = ([0] | [0-9]+)
 <YYINITIAL>"NEW"                    { return new Symbol(TokenConstants.NEW); }
 <YYINITIAL>"ISVOID"                 { return new Symbol(TokenConstants.ISVOID); }
 <YYINITIAL>"="                      { return new Symbol(TokenConstants.EQ); }
-<YYINITIAL>":"                      { return new Symbol(TokenConstants.COLON); }
+<YYINITIAL>":"                      { yybegin(COLON); 
+                                    return new Symbol(TokenConstants.COLON); }
+<COLON>{
+    {WhiteSpace}		            { }                            
+    {Identifier}                    {yybegin(YYINITIAL); 
+                                    return new Symbol(TokenConstants.TYPEID, new IdSymbol(yytext(), yytext().length(), 0)); }                              
+}
 <YYINITIAL>"~"                      { return new Symbol(TokenConstants.NEG); }
 <YYINITIAL>"{"                      { return new Symbol(TokenConstants.LBRACE); }
 <YYINITIAL>"ELSE"                   { return new Symbol(TokenConstants.ELSE); }
@@ -169,7 +216,7 @@ digit = ([0] | [0-9]+)
 <YYINITIAL>"THEN"                   { return new Symbol(TokenConstants.THEN); }
 <YYINITIAL>[t]rue|[f]alse           { return new Symbol(TokenConstants.BOOL_CONST, yytext()); }
 <YYINITIAL>"@"                      { return new Symbol(TokenConstants.AT); }
-<YYINITIAL>[\^>\[\]¨´~`']+[:jletterdigit:]*   { 
+<YYINITIAL>[\^>\[\]¨´~`']+[:jletter:]*   { 
                                         return new Symbol(
                                             TokenConstants.ERROR, new StringSymbol(
                                                 yytext(), yytext().length(), 0

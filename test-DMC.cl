@@ -14,3 +14,10 @@ a11111 "s11111"
 true false
 tRUE fALSE
 True False
+~12 ~aaa ~12aa
+"aaaaa
+"aaaaa\
+bbbbbbb
+(* aaaaaaa *)
+"aaaaa
+*)

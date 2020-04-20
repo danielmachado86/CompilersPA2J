@@ -101,7 +101,3 @@ Instructions
 
 Write-up for PA2J
 -----------------
-
- Generate java file from Lexical Specification: 	jflex cool.lex
- Build java files into build directory: 			javac -cp ../../lib/ -d build/ *.java
- Run Lexer on test file: 							java -cp ../../lib/:build/ Lexer test.cl
